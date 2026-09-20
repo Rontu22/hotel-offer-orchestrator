@@ -38,18 +38,25 @@ against the supplier you just switched off.
 
 ## Screenshots
 
-<!-- SCREENSHOTS: drop files into docs/screenshots/ and uncomment the matching line.
-     Suggested set:
-       01-home.png          the app with results for delhi
-       02-degraded.png      one supplier taken down, amber banner visible
-       03-temporal.png      a workflow history in the Temporal UI
-       04-health.png        the /health JSON
--->
-<!-- <p align="center"><img src="docs/screenshots/01-home.png" alt="Hotel offers for Delhi" width="820"></p> -->
-<!-- <p align="center"><img src="docs/screenshots/02-degraded.png" alt="Degraded mode with Supplier A down" width="820"></p> -->
-<!-- <p align="center"><img src="docs/screenshots/03-temporal.png" alt="Temporal workflow history" width="820"></p> -->
+<p align="center">
+  <img src="docs/screenshots/01-web-app.png" alt="Hotel offers for Mumbai, with a health panel showing Redis, Temporal and both suppliers up" width="880">
+</p>
 
-_Screenshots are being added._
+The health panel reports every dependency with its own latency, and each supplier has a
+**Take down** button that switches it off for real. The result line reads
+*"orchestrated just now"* because every search runs the workflow — nothing is served
+from a cache.
+
+<p align="center">
+  <img src="docs/screenshots/02-temporal-workflows.png" alt="Temporal Web UI listing aggregateHotelOffers runs, one per search" width="880">
+</p>
+
+Every search is its own workflow run. The `:gNN` suffix is the supplier-availability
+generation: it advances whenever a supplier is switched on or off, so a request made
+after a change cannot join a run that read that supplier beforehand. Repeated runs of
+the same id (`hotel-offers:delhi:g52` four times) are four separate searches within one
+generation, and the `FAILED` rows are genuine both-suppliers-down cases — handled as a
+clean `503` rather than a 500.
 
 ## What it does
 
