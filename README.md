@@ -42,12 +42,13 @@ against the supplier you just switched off.
 ### Demo video
 
 <p align="center">
-  <video src="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4" poster="https://raw.githubusercontent.com/Rontu22/hotel-offer-orchestrator/main/docs/screenshots/01-web-app.png" controls muted playsinline width="880"></video>
+  <a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">
+    <img src="docs/screenshots/01-web-app.png" alt="Demo video — 2 minutes 49 seconds, no sound" width="880">
+  </a>
 </p>
 
 <p align="center">
-  2m49s, no sound —
-  <a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">download it</a> if the player above does not load.
+  <b><a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">▶ Watch the demo</a></b> — 2m49s, no sound, 14 MB
 </p>
 
 ### The app
