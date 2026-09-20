@@ -27,7 +27,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     NODE_ENV: str('NODE_ENV', 'development'),
     PORT: num('PORT', 3001),
     REDIS_URL: str('REDIS_URL', 'redis://localhost:6379'),
-    CACHE_TTL_SECONDS: num('CACHE_TTL_SECONDS', 300),
+    OFFER_TTL_SECONDS: num('OFFER_TTL_SECONDS', num('CACHE_TTL_SECONDS', 300)),
     TEMPORAL_ADDRESS: str('TEMPORAL_ADDRESS', 'localhost:7233'),
     TEMPORAL_NAMESPACE: str('TEMPORAL_NAMESPACE', 'default'),
     TEMPORAL_TASK_QUEUE: str('TEMPORAL_TASK_QUEUE', 'hotel-offers'),
@@ -42,7 +42,12 @@ export interface Env {
   NODE_ENV: string;
   PORT: number;
   REDIS_URL: string;
-  CACHE_TTL_SECONDS: number;
+  /**
+   * How long a city's offer set lingers in Redis after the workflow writes it.
+   * Not a cache TTL: every request re-orchestrates, so this only stops abandoned
+   * keys accumulating. Accepts the old CACHE_TTL_SECONDS name.
+   */
+  OFFER_TTL_SECONDS: number;
   TEMPORAL_ADDRESS: string;
   TEMPORAL_NAMESPACE: string;
   TEMPORAL_TASK_QUEUE: string;

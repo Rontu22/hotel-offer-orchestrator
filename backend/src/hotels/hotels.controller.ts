@@ -15,9 +15,8 @@ export class HotelsController {
   @Get()
   @Header('Cache-Control', 'no-store')
   async find(@Query() query: FindHotelsDto, @Res({ passthrough: true }) res: Response): Promise<HotelOffer[]> {
-    const { offers, cached, degraded } = await this.hotels.find(query);
+    const { offers, degraded } = await this.hotels.find(query);
 
-    res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
     if (degraded.length > 0) res.setHeader('X-Degraded-Suppliers', degraded.join(', '));
 
     return offers;

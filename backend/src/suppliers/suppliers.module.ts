@@ -4,7 +4,7 @@ import { AvailabilityController } from './availability.controller.js';
 import { SupplierAvailabilityService } from './supplier-availability.service.js';
 
 @Module({
-  imports: [HotelsModule], // flipping a supplier invalidates the cached aggregates
+  imports: [HotelsModule], // flipping a supplier starts a new orchestration era
   controllers: [AvailabilityController],
   providers: [SupplierAvailabilityService],
   exports: [SupplierAvailabilityService],

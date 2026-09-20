@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Context, log } from '@temporalio/activity';
 import { ApplicationFailure } from '@temporalio/common';
 import type { Env } from '../config/env.js';
-import { HotelsCache } from '../hotels/hotels.cache.js';
+import { OfferStore } from '../hotels/offer-store.js';
 import type { HotelOffer } from '../hotels/hotel.types.js';
 import { SUPPLIER_URL_ENV, type SupplierHotel, type SupplierId, type SupplierName } from '../suppliers/supplier.types.js';
 
@@ -20,7 +20,7 @@ export class HotelActivities implements Activities {
 
   constructor(
     private readonly config: ConfigService<Env, true>,
-    private readonly cache: HotelsCache,
+    private readonly offers: OfferStore,
   ) {}
 
   fetchSupplierA(city: string): Promise<SupplierHotel[]> {
@@ -33,7 +33,7 @@ export class HotelActivities implements Activities {
 
   async cacheOffers(city: string, offers: HotelOffer[], degraded: SupplierName[] = []): Promise<void> {
     try {
-      await this.cache.save(city, offers, degraded);
+      await this.offers.save(city, offers, degraded);
     } catch (cause) {
       // Redis being briefly unreachable is worth another attempt, not a dead workflow.
       this.logger.error(`Caching offers for "${city}" failed`, stackOf(cause));

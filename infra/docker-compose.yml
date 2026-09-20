@@ -3,7 +3,7 @@ name: hotel-offer-orchestrator
 x-backend-env: &backend-env
   NODE_ENV: production
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-  CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+  OFFER_TTL_SECONDS: ${OFFER_TTL_SECONDS:-300}
   TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
   TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
   TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-hotel-offers}

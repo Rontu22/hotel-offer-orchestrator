@@ -51,7 +51,7 @@ export function buildQuery({ city, minPrice, maxPrice }: HotelSearch): string {
 }
 
 export type SearchResult =
-  | { ok: true; offers: HotelOffer[]; cached: boolean; degraded: string[] }
+  | { ok: true; offers: HotelOffer[]; degraded: string[] }
   | { ok: false; error: string };
 
 export async function searchHotels(search: HotelSearch): Promise<SearchResult> {
@@ -69,7 +69,6 @@ export async function searchHotels(search: HotelSearch): Promise<SearchResult> {
     return {
       ok: true,
       offers: (await response.json()) as HotelOffer[],
-      cached: response.headers.get("x-cache") === "HIT",
       degraded: parseDegraded(response.headers.get("x-degraded-suppliers")),
     };
   } catch {

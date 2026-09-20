@@ -19,9 +19,3 @@ export interface AggregateResult {
   degraded: SupplierName[];
 }
 
-/** Stored next to the cached offers so a cache hit can still report degradation. */
-export interface CacheMeta {
-  count: number;
-  degraded: SupplierName[];
-  fetchedAt: string;
-}

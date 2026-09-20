@@ -13,11 +13,10 @@ import { AGGREGATE_HOTEL_OFFERS, type aggregateHotelOffers } from '../temporal/w
 import type { FindHotelsDto } from './dto/find-hotels.dto.js';
 import type { AggregateResult, HotelOffer } from './hotel.types.js';
 import type { SupplierName } from '../suppliers/supplier.types.js';
-import { HotelsCache, normalizeCity } from './hotels.cache.js';
+import { OfferStore, normalizeCity } from './offer-store.js';
 
 export interface FindHotelsResult {
   offers: HotelOffer[];
-  cached: boolean;
   /** Suppliers that could not be reached, so the list may be incomplete. */
   degraded: SupplierName[];
 }
@@ -28,7 +27,7 @@ export class HotelsService {
 
   constructor(
     @Inject(TEMPORAL_CLIENT) private readonly temporal: Client,
-    private readonly cache: HotelsCache,
+    private readonly offers: OfferStore,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -37,12 +36,13 @@ export class HotelsService {
       throw new BadRequestException('minPrice must not be greater than maxPrice');
     }
 
-    const meta = await this.cache.meta(query.city);
-    const degraded = meta ? meta.degraded : (await this.aggregate(query.city)).degraded;
+    // Every request orchestrates. Redis is the price filter, not a cache: handing
+    // back a stored result would mean quoting prices as stale as its TTL.
+    const { degraded } = await this.aggregate(query.city);
 
     // Filtering happens in Redis (ZRANGEBYSCORE), not here.
-    const offers = await this.cache.find(query.city, query);
-    return { offers, cached: meta !== null, degraded };
+    const offers = await this.offers.find(query.city, query);
+    return { offers, degraded };
   }
 
   /**
@@ -52,9 +52,9 @@ export class HotelsService {
    * switched off the result of a run that read that supplier while it was up.
    */
   private async aggregate(city: string): Promise<AggregateResult> {
-    const generation = await this.cache.generation();
+    const generation = await this.offers.generation();
     const workflowId = `hotel-offers:${normalizeCity(city)}:g${generation}`;
-    this.logger.log(`Cache miss for "${city}" — starting workflow ${workflowId}`);
+    this.logger.log(`Orchestrating "${city}" — workflow ${workflowId}`);
 
     try {
       return await this.temporal.workflow.execute<typeof aggregateHotelOffers>(AGGREGATE_HOTEL_OFFERS, {

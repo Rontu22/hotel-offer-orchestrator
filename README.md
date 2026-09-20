@@ -81,18 +81,26 @@ and says so.
   tables and can only ask the suppliers over the wire.
 - **Redis** holds the deduplicated list as a sorted set scored by price, so the
   price filter is a single `ZRANGEBYSCORE` executed by Redis, not in application code.
+  It is a **price-filtering store, not a cache**: every request runs the workflow and
+  writes a fresh set, so a quoted price is never older than the request that asked for it.
 
 ### Request flow
 
-1. `GET /api/hotels?city=delhi` → is this city cached in Redis?
-2. Miss → run the `aggregateHotelOffers` workflow. Concurrent requests for the same
-   city join the same workflow run (`workflowIdConflictPolicy: USE_EXISTING`).
-3. The workflow calls both suppliers **in parallel** (`Promise.allSettled` over two
+1. `GET /api/hotels?city=delhi` runs the `aggregateHotelOffers` workflow. Every
+   request does — there is no cache in front of it. Concurrent requests for the same
+   city do share one run (`workflowIdConflictPolicy: USE_EXISTING`), so a burst costs
+   one orchestration rather than one each.
+2. The workflow calls both suppliers **in parallel** (`Promise.allSettled` over two
    activities, each retried up to 3 times by Temporal), selects the cheapest offer
-   per hotel name, and writes the result to Redis. One supplier failing degrades the
-   result instead of failing it — see [Failure handling](#failure-handling).
-4. The API reads the list back from Redis, price-filtered by Redis.
-5. `X-Cache: HIT|MISS` tells you which path served the response.
+   per hotel name, and writes the result to Redis as a price-scored sorted set. One
+   supplier failing degrades the result instead of failing it — see
+   [Failure handling](#failure-handling).
+3. The API reads the list back with a single `ZRANGEBYSCORE`, so `minPrice`/`maxPrice`
+   are applied by Redis rather than by application code.
+4. `X-Degraded-Suppliers` names any supplier that could not be reached.
+
+One search in the UI is therefore one workflow in the Temporal UI — that is the point
+of running Temporal at all, and it is visible rather than hidden behind a cache.
 
 ## Project layout
 
@@ -190,9 +198,8 @@ docker compose down -v          # tear down, including volumes
 | GET    | `/api/suppliers`                            | Current availability of each supplier              |
 | PUT    | `/api/suppliers/:id/availability`           | Fault injection: `{ "available": false }`          |
 
-Response headers on `/api/hotels`: `X-Cache: HIT|MISS`, and `X-Degraded-Suppliers`
-listing any supplier that could not be reached. The body stays the plain array the
-spec pins down.
+Response header on `/api/hotels`: `X-Degraded-Suppliers`, listing any supplier that
+could not be reached. The body stays the plain array the spec pins down.
 
 `city` is required. `minPrice`/`maxPrice` are optional, inclusive, non-negative
 integers. Unknown query parameters are rejected with `400`. Cities are matched
@@ -275,9 +282,9 @@ curl -X PUT localhost:3001/api/suppliers/supplierA/availability \
 ```
 
 Supplier A now answers `503`, `/health` turns `degraded`, and `/api/hotels` keeps
-working from Supplier B with `X-Degraded-Suppliers: Supplier A`. Flipping a supplier
-invalidates the cached aggregates, so the effect is visible immediately. The same
-switch is wired to the **Take down / Bring up** buttons in the UI.
+working from Supplier B with `X-Degraded-Suppliers: Supplier A`. The effect is visible
+on the next request, because there is nothing cached to wait out. The same switch is
+wired to the **Take down / Bring up** buttons in the UI.
 
 The endpoint is unauthenticated, so it is gated behind `ENABLE_FAULT_INJECTION`
 (default `true` here, set `false` for a real deployment).
@@ -304,17 +311,16 @@ Because the default is the deployed stack, the outage folder switches **real** s
 off and on. It restores both at the end, but a run cancelled midway can leave one down —
 `PUT {{baseUrl}}/api/suppliers/:id/availability` with `{"available":true}` puts it back.
 
-The `ec2` target hits the instance directly on 4001/4002/4003 rather than CloudFront.
-That is deliberate: the edge sets its own `X-Cache` header, which masks the API's
-`X-Cache: HIT|MISS` and defeats the Redis cache assertions, and the suppliers are not
-routed through CloudFront at all. Those ports are restricted by `var.test_access_cidr`
+The `ec2` target hits the instance directly on 4001/4002/4003 rather than CloudFront,
+because the suppliers are not routed through CloudFront at all. Those ports are
+restricted by `var.test_access_cidr`
 in the Terraform, which defaults to a single address — update it when yours changes.
 `ec2Host` comes from `terraform output api_origin`.
 
 ## Tests
 
 ```bash
-cd backend   && npm test          # 56 unit + module-wiring tests, no infra needed
+cd backend   && npm test          # 51 unit + module-wiring tests, no infra needed
 cd frontend  && npm test          # 13 tests
 cd suppliers && npm test          # 4 tests against a real Postgres; skips if none is up
 cd backend   && npm run test:e2e  # 14 tests; needs the stack up, drives the real workflow

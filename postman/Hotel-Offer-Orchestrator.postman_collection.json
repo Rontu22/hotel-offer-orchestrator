@@ -353,7 +353,8 @@
                   "  pm.expect(body.some(o => o.supplier === 'Supplier A')).to.be.true;",
                   "  pm.expect(body.some(o => o.supplier === 'Supplier B')).to.be.true;",
                   "});",
-                  "pm.collectionVariables.set('delhiCount', body.length);"
+                  "pm.collectionVariables.set('delhiCount', body.length);",
+                  "pm.collectionVariables.set('delhiOffers', JSON.stringify(pm.response.json()));"
                 ]
               }
             }
@@ -361,7 +362,7 @@
           "response": []
         },
         {
-          "name": "Same city again \u2014 served from Redis",
+          "name": "Same city again \u2014 re-orchestrated, not replayed",
           "request": {
             "method": "GET",
             "header": [],
@@ -381,7 +382,7 @@
                 }
               ]
             },
-            "description": ""
+            "description": "Redis holds the price-scored set so ZRANGEBYSCORE does the filtering; it does not short-circuit the workflow. A repeated search runs the workflow again, so the prices quoted are never older than this request."
           },
           "event": [
             {
@@ -389,9 +390,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "const body = pm.response.json();",
                   "pm.test('200', () => pm.response.to.have.status(200));",
-                  "pm.test('cache hit', () => pm.expect(pm.response.headers.get('X-Cache')).to.eql('HIT'));",
-                  "pm.test('fast', () => pm.expect(pm.response.responseTime).to.be.below(250));"
+                  "pm.test('same offers as the first run', () => {",
+                  "  pm.expect(body).to.eql(JSON.parse(pm.collectionVariables.get('delhiOffers')));",
+                  "});",
+                  "// The cache header is gone: nothing may claim this was served from a cache.",
+                  "pm.test('no cache hit is claimed', () => {",
+                  "  pm.expect(pm.response.headers.get('X-Cache')).to.be.undefined;",
+                  "});"
                 ]
               }
             }

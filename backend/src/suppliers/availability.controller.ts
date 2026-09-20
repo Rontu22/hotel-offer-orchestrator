@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
-import { HotelsCache } from '../hotels/hotels.cache.js';
+import { OfferStore } from '../hotels/offer-store.js';
 import { SetAvailabilityDto } from './dto/set-availability.dto.js';
 import { SupplierAvailabilityService } from './supplier-availability.service.js';
 import { isSupplierId, type SupplierId } from './supplier.types.js';
@@ -22,7 +22,7 @@ import { isSupplierId, type SupplierId } from './supplier.types.js';
 export class AvailabilityController {
   constructor(
     private readonly availability: SupplierAvailabilityService,
-    private readonly cache: HotelsCache,
+    private readonly offers: OfferStore,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -44,8 +44,9 @@ export class AvailabilityController {
     }
 
     await this.availability.set(supplier, body.available);
-    // Supplier availability changed, so every cached aggregate is now stale.
-    await this.cache.invalidateAll();
+    // Close the current era: a request arriving now must orchestrate afresh rather
+    // than join a workflow run that read this supplier while it was still up.
+    await this.offers.beginNewGeneration();
 
     return this.availability.list();
   }

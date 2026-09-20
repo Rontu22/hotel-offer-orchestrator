@@ -66,7 +66,7 @@ function Orchestrator() {
 
   const onSupplierChanged = useCallback(() => {
     void refreshHealth();
-    // Availability changed, so the cached aggregate was dropped: re-run the search.
+    // Availability changed, so the previous result no longer reflects reality.
     searchHotels(readSearchParams(new URLSearchParams(query))).then(setResult);
   }, [query, refreshHealth]);
 
@@ -134,7 +134,7 @@ function Results({ search, result }: { search: HotelSearch; result: SearchResult
       <p className="mb-3 text-xs uppercase tracking-wide opacity-50">
         {result.offers.length} hotel{result.offers.length === 1 ? "" : "s"} in {search.city}
         {" · "}
-        {result.cached ? "served from Redis cache" : "freshly orchestrated"}
+        orchestrated just now
       </p>
       <OffersTable offers={result.offers} />
     </>

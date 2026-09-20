@@ -22,3 +22,8 @@ infra/.env.aws
 *.tfplan
 .terraform.lock.hcl
 crash.log
+
+# Editor/agent scaffolding. `next dev` regenerates frontend/AGENTS.md on every run;
+# keeping it untracked stops it reappearing in a diff.
+AGENTS.md
+brag-output/

@@ -37,13 +37,12 @@ describe("searchHotels", () => {
   it("reports the cache header alongside the offers", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify([]), { headers: { "x-cache": "HIT" } })),
+      vi.fn(async () => new Response(JSON.stringify([]))),
     );
 
     await expect(searchHotels({ city: "delhi" })).resolves.toEqual({
       ok: true,
       offers: [],
-      cached: true,
       degraded: [],
     });
   });

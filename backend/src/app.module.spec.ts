@@ -86,13 +86,13 @@ describe('AppModule', () => {
     await expect(ctx.app.close()).resolves.not.toThrow();
   });
 
-  it('serves GET /api/hotels through the workflow and the cache', async () => {
-    await ctx.http().get('/api/hotels?city=delhi').expect(200).expect('X-Cache', 'MISS').expect(ctx.offers);
+  it('serves GET /api/hotels by orchestrating, every time', async () => {
+    await ctx.http().get('/api/hotels?city=delhi').expect(200).expect(ctx.offers);
     expect(ctx.execute).toHaveBeenCalledOnce();
 
-    // Second call is served from the cache without re-running the workflow.
-    await ctx.http().get('/api/hotels?city=delhi').expect(200).expect('X-Cache', 'HIT');
-    expect(ctx.execute).toHaveBeenCalledOnce();
+    // Redis is the price filter, not a cache, so a repeat re-runs the workflow.
+    await ctx.http().get('/api/hotels?city=delhi').expect(200).expect(ctx.offers);
+    expect(ctx.execute).toHaveBeenCalledTimes(2);
     await ctx.app.close();
   });
 
@@ -104,7 +104,7 @@ describe('AppModule', () => {
     await ctx.app.close();
   });
 
-  it('takes a supplier down at the supplier itself, and clears the cache', async () => {
+  it('takes a supplier down at the supplier itself, and starts a new era', async () => {
     await ctx.http().get('/api/hotels?city=delhi').expect(200);
 
     await ctx
@@ -113,9 +113,6 @@ describe('AppModule', () => {
       .send({ available: false })
       .expect(200)
       .expect({ supplierA: false, supplierB: true });
-
-    // Cached aggregates were invalidated, so the next read re-runs the workflow.
-    await ctx.http().get('/api/hotels?city=delhi').expect('X-Cache', 'MISS');
 
     // Read back over HTTP: the flag lives in the supplier, not in our Redis.
     await ctx.http().get('/api/suppliers').expect({ supplierA: false, supplierB: true });

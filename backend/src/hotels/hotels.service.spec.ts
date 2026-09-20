@@ -2,40 +2,24 @@ import { BadRequestException, ServiceUnavailableException } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import type { Client } from '@temporalio/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CacheMeta } from './hotel.types.js';
-import type { HotelsCache } from './hotels.cache.js';
+import type { OfferStore } from './offer-store.js';
 import { HotelsService } from './hotels.service.js';
 
 const offer = { name: 'Holtin', price: 5340, supplier: 'Supplier B' as const, commissionPct: 20 };
-const meta = (over: Partial<CacheMeta> = {}): CacheMeta => ({
-  count: 1,
-  degraded: [],
-  fetchedAt: '2026-09-20T00:00:00.000Z',
-  ...over,
-});
-
 describe('HotelsService', () => {
   const execute = vi.fn(async (_name: string, _options: Record<string, unknown>) => ({
     offers: [offer],
     degraded: [] as never[],
   }));
-  let cache: {
-    meta: ReturnType<typeof vi.fn>;
-    find: ReturnType<typeof vi.fn>;
-    generation: ReturnType<typeof vi.fn>;
-  };
+  let store: { find: ReturnType<typeof vi.fn>; generation: ReturnType<typeof vi.fn> };
   let service: HotelsService;
 
   beforeEach(() => {
     execute.mockClear();
-    cache = {
-      meta: vi.fn(async () => null),
-      find: vi.fn(async () => [offer]),
-      generation: vi.fn(async () => '0'),
-    };
+    store = { find: vi.fn(async () => [offer]), generation: vi.fn(async () => '0') };
     service = new HotelsService(
       { workflow: { execute } } as unknown as Client,
-      cache as unknown as HotelsCache,
+      store as unknown as OfferStore,
       new ConfigService({ TEMPORAL_TASK_QUEUE: 'hotel-offers' }) as never,
     );
   });
@@ -49,19 +33,9 @@ describe('HotelsService', () => {
       workflowId: 'hotel-offers:delhi:g0',
       args: [{ city: 'delhi' }],
     });
-    expect(result).toEqual({ offers: [offer], cached: false, degraded: [] });
+    expect(result).toEqual({ offers: [offer], degraded: [] });
   });
 
-  it('skips the workflow entirely when the city is already cached', async () => {
-    cache.meta.mockResolvedValue(meta());
-
-    expect(await service.find({ city: 'delhi' })).toEqual({
-      offers: [offer],
-      cached: true,
-      degraded: [],
-    });
-    expect(execute).not.toHaveBeenCalled();
-  });
 
   it('reports the degraded suppliers the workflow saw', async () => {
     execute.mockResolvedValueOnce({ offers: [offer], degraded: ['Supplier A'] as never });
@@ -69,13 +43,6 @@ describe('HotelsService', () => {
     expect((await service.find({ city: 'delhi' })).degraded).toEqual(['Supplier A']);
   });
 
-  it('still reports degradation when the answer comes from cache', async () => {
-    cache.meta.mockResolvedValue(meta({ degraded: ['Supplier B'] }));
-
-    const result = await service.find({ city: 'delhi' });
-    expect(result).toMatchObject({ cached: true, degraded: ['Supplier B'] });
-    expect(execute).not.toHaveBeenCalled();
-  });
 
   it('collapses concurrent requests for a city onto one workflow run', async () => {
     await service.find({ city: 'Delhi' });
@@ -84,7 +51,7 @@ describe('HotelsService', () => {
 
   it('passes the price range through to Redis', async () => {
     await service.find({ city: 'delhi', minPrice: 4000, maxPrice: 6000 });
-    expect(cache.find).toHaveBeenCalledWith('delhi', { city: 'delhi', minPrice: 4000, maxPrice: 6000 });
+    expect(store.find).toHaveBeenCalledWith('delhi', { city: 'delhi', minPrice: 4000, maxPrice: 6000 });
   });
 
   it('answers 503 rather than 500 when the workflow cannot complete', async () => {
@@ -98,7 +65,7 @@ describe('HotelsService', () => {
       BadRequestException,
     );
     expect(execute).not.toHaveBeenCalled();
-    expect(cache.meta).not.toHaveBeenCalled();
+    expect(store.find).not.toHaveBeenCalled();
   });
 
   /**
@@ -115,10 +82,23 @@ describe('HotelsService', () => {
     });
 
     // A supplier was switched off: invalidateAll advanced the counter.
-    cache.generation.mockResolvedValue('1');
+    store.generation.mockResolvedValue('1');
     await service.find({ city: 'delhi' });
 
     expect(execute.mock.calls[1][1]).toMatchObject({ workflowId: 'hotel-offers:delhi:g1' });
     expect(execute.mock.calls[1][1]).not.toMatchObject({ workflowId: 'hotel-offers:delhi:g0' });
+  });
+
+  /**
+   * Redis is the price filter, not a cache: repeating a search must re-orchestrate,
+   * otherwise the prices quoted are as old as the TTL.
+   */
+  it('runs the workflow again for a repeated search', async () => {
+    await service.find({ city: 'mumbai' });
+    await service.find({ city: 'mumbai' });
+    await service.find({ city: 'mumbai' });
+
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(store.find).toHaveBeenCalledTimes(3);
   });
 });

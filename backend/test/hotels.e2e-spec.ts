@@ -80,11 +80,21 @@ describe('hotel offers end to end', () => {
     expect(body.some((o) => o.supplier === 'Supplier B')).toBe(true);
   }, 60_000);
 
-  it('serves the second identical request from the Redis cache', async () => {
-    const { cache, body } = await get<HotelOffer[]>(`/api/hotels?city=${CITY}`);
-    expect(cache).toBe('HIT');
-    expect(body.length).toBeGreaterThan(0);
-  });
+  /**
+   * Redis holds the price-scored set, it does not short-circuit the workflow:
+   * a repeated search must orchestrate again rather than replay an older answer.
+   */
+  it('re-orchestrates an identical request instead of replaying a stored one', async () => {
+    const first = await get<HotelOffer[]>(`/api/hotels?city=${CITY}`);
+    const second = await get<HotelOffer[]>(`/api/hotels?city=${CITY}`);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.body.length).toBeGreaterThan(0);
+    expect(second.body).toEqual(first.body);
+    // The header the cache used to set is gone; nothing should claim a hit.
+    expect(second.cache).toBeNull();
+  }, 60_000);
 
   it('filters by price range inside Redis', async () => {
     const all = await get<HotelOffer[]>(`/api/hotels?city=${CITY}`);
