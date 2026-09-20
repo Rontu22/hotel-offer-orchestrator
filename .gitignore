@@ -28,7 +28,8 @@ crash.log
 AGENTS.md
 brag-output/
 
-# Raw screen captures. Only the compressed docs/demo/demo.mp4 is committed; the
-# originals are hundreds of MB and would blow past GitHub's 100MB file limit.
+# Screen captures stay local. The demo is hosted by GitHub as an attachment and
+# linked from the README, so the repo carries no video at all.
+docs/demo/
 *.mov
 *.MOV
