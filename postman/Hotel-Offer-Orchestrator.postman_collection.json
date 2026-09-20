@@ -1,0 +1,1122 @@
+{
+  "info": {
+    "name": "Hotel Offer Orchestrator",
+    "description": "Set the `target` collection variable to 'ec2' or 'local' \u2014 that is the only value to change. It defaults to 'ec2', the deployed instance. baseUrl / supplierAUrl / supplierBUrl are derived from it before every request, so there are no separate environment files to keep in step.\n\n  ec2   : the deployed instance, hit directly on 4001/4002/4003 (default)\n  local : the stack from `cd infra && docker compose up -d`\n\nThe ec2 target deliberately bypasses CloudFront: the edge sets its own X-Cache header, which masks the API's X-Cache: HIT|MISS and defeats the Redis cache assertions. The supplier services are not routed through CloudFront either.\n\nNote the outage folder switches real suppliers off and on again on the deployed stack. It restores both at the end.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "target",
+      "value": "ec2",
+      "type": "string",
+      "description": "Where the collection points: 'ec2' (default, the deployed instance) or 'local'. Change this one value; the three URLs below are derived from it on every request."
+    },
+    {
+      "key": "ec2Host",
+      "value": "ec2-3-108-208-55.ap-south-1.compute.amazonaws.com",
+      "type": "string",
+      "description": "Public DNS of the instance. Terraform: `terraform output api_origin`."
+    },
+    {
+      "key": "baseUrl",
+      "value": "http://ec2-3-108-208-55.ap-south-1.compute.amazonaws.com:4001",
+      "type": "string",
+      "description": "Derived from target."
+    },
+    {
+      "key": "supplierAUrl",
+      "value": "http://ec2-3-108-208-55.ap-south-1.compute.amazonaws.com:4002",
+      "type": "string",
+      "description": "Derived from target."
+    },
+    {
+      "key": "supplierBUrl",
+      "value": "http://ec2-3-108-208-55.ap-south-1.compute.amazonaws.com:4003",
+      "type": "string",
+      "description": "Derived from target."
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "description": "The health endpoint reports Redis, Temporal and both suppliers.",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ],
+              "query": []
+            },
+            "description": "No dependencies: a supplier outage must never mark the container dead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('reports ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Full health report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            },
+            "description": "Includes a per-supplier probe with latency."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200 while serviceable', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ok or degraded', () => pm.expect(['ok','degraded']).to.include(body.status));",
+                  "pm.test('reports redis and temporal', () => {",
+                  "  pm.expect(body.redis.status).to.eql('up');",
+                  "  pm.expect(body.temporal.status).to.eql('up');",
+                  "});",
+                  "pm.test('reports BOTH suppliers with latency', () => {",
+                  "  pm.expect(body.suppliers).to.have.all.keys('supplierA', 'supplierB');",
+                  "  pm.expect(body.suppliers.supplierA.latencyMs).to.be.a('number');",
+                  "  pm.expect(body.suppliers.supplierB.latencyMs).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Supplier services",
+      "item": [
+        {
+          "name": "Supplier A hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierAUrl}}/hotels?city=delhi",
+              "host": [
+                "{{supplierAUrl}}"
+              ],
+              "path": [
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('all for the requested city', () => pm.expect(body.every(h => h.city === 'delhi')).to.be.true);",
+                  "pm.collectionVariables.set('supplierAHotels', JSON.stringify(body));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier B hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierBUrl}}/hotels?city=delhi",
+              "host": [
+                "{{supplierBUrl}}"
+              ],
+              "path": [
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const a = JSON.parse(pm.collectionVariables.get('supplierAHotels') || '[]');",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('names overlap with Supplier A', () => {",
+                  "  const namesB = new Set(b.map(h => h.name));",
+                  "  pm.expect(a.some(h => namesB.has(h.name))).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier A health (checks its own database)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierAUrl}}/health",
+              "host": [
+                "{{supplierAUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Each supplier owns a Postgres database and reports on it independently of the orchestrator."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('identifies itself', () => pm.expect(body.supplier).to.eql('supplierA'));",
+                  "pm.test('its database answered', () => pm.expect(body.status).to.eql('ok'));",
+                  "// Liveness, not readiness: a switched-off supplier is still a healthy process.",
+                  "pm.test('reports its availability flag', () => pm.expect(body.available).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier B health (checks its own database)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierBUrl}}/health",
+              "host": [
+                "{{supplierBUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('identifies itself', () => pm.expect(body.supplier).to.eql('supplierB'));",
+                  "pm.test('its database answered', () => pm.expect(body.status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier A availability flag lives in the supplier",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierAUrl}}/admin/availability",
+              "host": [
+                "{{supplierAUrl}}"
+              ],
+              "path": [
+                "admin",
+                "availability"
+              ]
+            },
+            "description": "The kill switch is the supplier's own state. /api/suppliers on the orchestrator just forwards here."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('owns its own flag', () => pm.expect(body).to.have.property('available'));",
+                  "pm.test('agrees with the orchestrator', () => {",
+                  "  pm.sendRequest(pm.collectionVariables.replaceIn('{{baseUrl}}/api/suppliers'), (err, res) => {",
+                  "    if (!err) pm.expect(res.json().supplierA).to.eql(body.available);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "description": "Each supplier is its own service on its own port, reading its own Postgres database. These requests bypass the orchestrator entirely."
+    },
+    {
+      "name": "3. Hotels",
+      "description": "Valid city with overlaps, price filtering, and a city with no results.",
+      "item": [
+        {
+          "name": "Valid city with overlaps (delhi)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": "Runs the Temporal workflow on a cache miss; cheapest offer per hotel name wins."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns offers', () => pm.expect(body.length).to.be.above(0));",
+                  "pm.test('deduplicated by name', () => {",
+                  "  const names = body.map(o => o.name);",
+                  "  pm.expect(new Set(names).size).to.eql(names.length);",
+                  "});",
+                  "pm.test('response shape', () => body.forEach(o => pm.expect(o).to.have.all.keys('name','price','supplier','commissionPct')));",
+                  "pm.test('cheapest supplier wins the overlap', () => {",
+                  "  const holtin = body.find(o => o.name === 'Holtin');",
+                  "  pm.expect(holtin).to.deep.include({ price: 5340, supplier: 'Supplier B' });",
+                  "});",
+                  "pm.test('both suppliers are represented', () => {",
+                  "  pm.expect(body.some(o => o.supplier === 'Supplier A')).to.be.true;",
+                  "  pm.expect(body.some(o => o.supplier === 'Supplier B')).to.be.true;",
+                  "});",
+                  "pm.collectionVariables.set('delhiCount', body.length);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Same city again \u2014 served from Redis",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('cache hit', () => pm.expect(pm.response.headers.get('X-Cache')).to.eql('HIT'));",
+                  "pm.test('fast', () => pm.expect(pm.response.responseTime).to.be.below(250));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Price filter 4000-6000 (filtered inside Redis)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=4000&maxPrice=6000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "4000"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "6000"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('every price within the range', () => pm.expect(body.every(o => o.price >= 4000 && o.price <= 6000)).to.be.true);",
+                  "pm.test('narrower than the unfiltered list', () => pm.expect(body.length).to.be.below(Number(pm.collectionVariables.get('delhiCount'))));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Bounds are inclusive",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=5340&maxPrice=5340",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "5340"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "5340"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('exact-price match is included', () => pm.expect(pm.response.json().map(o => o.name)).to.include('Holtin'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "City with no results (atlantis)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=atlantis",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "atlantis"
+                }
+              ]
+            },
+            "description": "No supplier covers this city; the workflow still completes and caches the empty result."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, not an error', () => pm.response.to.have.status(200));",
+                  "pm.test('empty array', () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Rejects a missing city",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Rejects an inverted price range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=9000&maxPrice=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "9000"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('explains why', () => pm.expect(pm.response.json().message).to.include('minPrice'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Rejects an unknown query parameter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&sortBy=price",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "price"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Simulate a supplier being down",
+      "description": "Takes Supplier A offline at runtime, proves the workflow degrades to Supplier B, then restores it.",
+      "item": [
+        {
+          "name": "Take Supplier A down",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/suppliers/supplierA/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "suppliers",
+                "supplierA",
+                "availability"
+              ],
+              "query": []
+            },
+            "description": "Flips a Redis-backed kill switch and invalidates cached aggregates.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"available\": false}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('only Supplier A is down', () => pm.expect(pm.response.json()).to.eql({ supplierA: false, supplierB: true }));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier A now returns 503",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierAUrl}}/hotels?city=delhi",
+              "host": [
+                "{{supplierAUrl}}"
+              ],
+              "path": [
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('503', () => pm.response.to.have.status(503));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Supplier B is unaffected",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{supplierBUrl}}/hotels?city=delhi",
+              "host": [
+                "{{supplierBUrl}}"
+              ],
+              "path": [
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Health reports degraded",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('still 200 \u2014 one supplier down is serviceable', () => pm.response.to.have.status(200));",
+                  "pm.test('status is degraded', () => pm.expect(body.status).to.eql('degraded'));",
+                  "pm.test('names the failing supplier', () => {",
+                  "  pm.expect(body.suppliers.supplierA.status).to.eql('down');",
+                  "  pm.expect(body.suppliers.supplierB.status).to.eql('up');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Hotels still returned, from Supplier B only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": "Temporal retries Supplier A, gives up, and the workflow proceeds with the survivor."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('200, not an error', () => pm.response.to.have.status(200));",
+                  "pm.test('flags the degradation', () => pm.expect(pm.response.headers.get('X-Degraded-Suppliers')).to.eql('Supplier A'));",
+                  "pm.test('every offer comes from Supplier B', () => pm.expect(body.every(o => o.supplier === 'Supplier B')).to.be.true);",
+                  "pm.test('Holtin is still priced', () => pm.expect(body.find(o => o.name === 'Holtin').price).to.eql(5340));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Take Supplier B down too",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/suppliers/supplierB/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "suppliers",
+                "supplierB",
+                "availability"
+              ],
+              "query": []
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"available\": false}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Total outage fails cleanly with 503",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=mumbai",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "mumbai"
+                }
+              ]
+            },
+            "description": "No feed survives, so the workflow fails non-retryably and the API answers 503 \u2014 never a 500."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('503, not 500', () => pm.response.to.have.status(503));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "A city orchestrated before the outage also fails",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hotels"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "delhi"
+                }
+              ]
+            },
+            "description": "Regression: delhi was aggregated moments ago while Supplier B was up. A request made after the outage must not be handed that earlier run's offers. The workflow id carries a generation that advances whenever availability changes, so USE_EXISTING cannot span the flip."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('503, not stale offers from before the outage', () => pm.response.to.have.status(503));",
+                  "pm.test('no hotel data leaks through', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body)).to.be.false;",
+                  "  pm.expect(body.statusCode).to.eql(503);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Restore Supplier A",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/suppliers/supplierA/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "suppliers",
+                "supplierA",
+                "availability"
+              ],
+              "query": []
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"available\": true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Restore Supplier B",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/suppliers/supplierB/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "suppliers",
+                "supplierB",
+                "availability"
+              ],
+              "query": []
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"available\": true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('both available again', () => pm.expect(pm.response.json()).to.eql({ supplierA: true, supplierB: true }));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Health is ok again",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Single switch for where this collection points: 'local' or 'ec2'.",
+          "// Everything else is derived, so there is one value to change, not three.",
+          "const target = (pm.variables.get('target') || 'local').toLowerCase();",
+          "",
+          "const HOSTS = {",
+          "  local: { host: 'localhost', apiPort: '3001' },",
+          "  ec2:   { host: pm.variables.get('ec2Host'), apiPort: '4001' },",
+          "};",
+          "",
+          "const { host, apiPort } = HOSTS[target] || HOSTS.local;",
+          "if (!host) throw new Error(`No host for target '${target}' \u2014 set ec2Host.`);",
+          "",
+          "pm.collectionVariables.set('baseUrl', `http://${host}:${apiPort}`);",
+          "pm.collectionVariables.set('supplierAUrl', `http://${host}:4002`);",
+          "pm.collectionVariables.set('supplierBUrl', `http://${host}:4003`);"
+        ]
+      }
+    }
+  ]
+}

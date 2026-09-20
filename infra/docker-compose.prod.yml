@@ -1,0 +1,190 @@
+# Deployed to the existing EC2 instance, which already runs other workloads.
+#   - Project name `hotel-offers` isolates these containers and their network.
+#   - Only the API publishes a host port, and 4001 because 3001 is already taken.
+#   - Every service is memory-capped: the box has 916 MB total and is shared.
+name: hotel-offers
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  REDIS_URL: redis://redis:6379
+  CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: hotel-offers
+  SUPPLIER_A_URL: http://supplier-a:4002
+  SUPPLIER_B_URL: http://supplier-b:4003
+  ENABLE_FAULT_INJECTION: ${ENABLE_FAULT_INJECTION:-true}
+  # A loaded t3.micro can stall the event loop past a 2s budget.
+  HEALTH_PROBE_TIMEOUT_MS: ${HEALTH_PROBE_TIMEOUT_MS:-6000}
+
+x-backend: &backend
+  image: ${BACKEND_IMAGE}
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+    temporal:
+      condition: service_healthy
+    supplier-a:
+      condition: service_healthy
+    supplier-b:
+      condition: service_healthy
+
+# Same image twice: separate process, port and database per supplier.
+x-supplier: &supplier
+  image: ${SUPPLIER_IMAGE}
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 64M
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U temporal -d temporal']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '48mb', '--maxmemory-policy', 'allkeys-lru']
+    volumes:
+      - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 80M
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+    healthcheck:
+      test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
+
+  # Published publicly by request. The Temporal UI has NO authentication: anyone
+  # who reaches this port can read workflow payloads and terminate running
+  # workflows. Bind it back to 127.0.0.1 and use an SSM port-forward to close it.
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: ${TEMPORAL_UI_ORIGIN:-http://localhost:8080}
+    ports:
+      - '${TEMPORAL_UI_PORT:-8080}:8080'
+    depends_on:
+      temporal:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # Supplier ports are published so the Postman collection can exercise the
+  # deployed services directly, as it does locally. The security group limits
+  # who may reach them (var.test_access_cidr).
+  supplier-a:
+    <<: *supplier
+    ports:
+      - '${SUPPLIER_A_PORT:-4002}:4002'
+    environment: &supplier-env
+      NODE_ENV: production
+      SUPPLIER_ID: supplierA
+      PORT: 4002
+      DATABASE_URL: postgres://temporal:${POSTGRES_PASSWORD}@postgres:5432/supplier_a
+      LATENCY_MS: ${SUPPLIER_LATENCY_MS:-150}
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4002/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  supplier-b:
+    <<: *supplier
+    ports:
+      - '${SUPPLIER_B_PORT:-4003}:4003'
+    environment:
+      <<: *supplier-env
+      SUPPLIER_ID: supplierB
+      PORT: 4003
+      DATABASE_URL: postgres://temporal:${POSTGRES_PASSWORD}@postgres:5432/supplier_b
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  api:
+    <<: *backend
+    command: ['node', 'dist/main.js']
+    environment:
+      <<: *backend-env
+      PORT: 3001
+    ports:
+      - '${API_PORT:-4001}:3001'
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  worker:
+    <<: *backend
+    command: ['node', 'dist/worker.js']
+    environment:
+      <<: *backend-env
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  postgres-data:
+  redis-data:

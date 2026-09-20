@@ -1,0 +1,196 @@
+name: hotel-offer-orchestrator
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+  TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-hotel-offers}
+  SUPPLIER_A_URL: http://supplier-a:4002
+  SUPPLIER_B_URL: http://supplier-b:4003
+  ENABLE_FAULT_INJECTION: ${ENABLE_FAULT_INJECTION:-true}
+
+# The API and the worker are the same image with different entrypoints; only the
+# API declares the build so `compose up --build` cannot build the tag twice.
+x-backend: &backend
+  image: hotel-offers-backend:local
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+    temporal:
+      condition: service_healthy
+    supplier-a:
+      condition: service_healthy
+    supplier-b:
+      condition: service_healthy
+
+# The two suppliers are the same image with different identities: separate
+# process, separate port, separate database. Only the first declares the build.
+x-supplier: &supplier
+  image: hotel-suppliers:local
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # Shared Postgres instance holding Temporal's store and one database per
+  # supplier. The orchestrator itself still keeps no relational state.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-temporal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-temporal}
+      POSTGRES_DB: ${POSTGRES_DB:-temporal}
+    # Published so the supplier services and their tests can run outside Docker.
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-temporal} -d ${POSTGRES_DB:-temporal}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'allkeys-lru']
+    # Published so the API and worker can run outside Docker against it.
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-temporal}
+    # Published for the same reason as Redis: local runs of the API and worker.
+    ports:
+      - '${TEMPORAL_PORT:-7233}:7233'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${TEMPORAL_UI_PORT:-8080}
+    ports:
+      - '${TEMPORAL_UI_PORT:-8080}:8080'
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  supplier-a:
+    <<: *supplier
+    build:
+      context: ..
+      dockerfile: infra/docker/supplier.Dockerfile
+    environment: &supplier-env
+      NODE_ENV: production
+      SUPPLIER_ID: supplierA
+      PORT: 4002
+      DATABASE_URL: postgres://${POSTGRES_USER:-temporal}:${POSTGRES_PASSWORD:-temporal}@postgres:5432/supplier_a
+      LATENCY_MS: ${SUPPLIER_LATENCY_MS:-150}
+    ports:
+      - '${SUPPLIER_A_PORT:-4002}:4002'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4002/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  supplier-b:
+    <<: *supplier
+    environment:
+      <<: *supplier-env
+      SUPPLIER_ID: supplierB
+      PORT: 4003
+      DATABASE_URL: postgres://${POSTGRES_USER:-temporal}:${POSTGRES_PASSWORD:-temporal}@postgres:5432/supplier_b
+    ports:
+      - '${SUPPLIER_B_PORT:-4003}:4003'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # HTTP API. The supplier catalogues are no longer served from here.
+  api:
+    <<: *backend
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    command: ['node', 'dist/main.js']
+    environment:
+      <<: *backend-env
+      PORT: 3001
+    ports:
+      - '${API_PORT:-3001}:3001'
+    healthcheck:
+      # Liveness, not readiness: a supplier outage must not mark the container dead.
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # Runs the workflow and activities. Scale this independently of the API.
+  worker:
+    <<: *backend
+    command: ['node', 'dist/worker.js']
+    environment:
+      <<: *backend-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      supplier-a:
+        condition: service_healthy
+      supplier-b:
+        condition: service_healthy
+
+  # Static bundle behind nginx, which proxies the API paths exactly as CloudFront
+  # does in AWS. Keeps local and production same-origin.
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/frontend.Dockerfile
+    image: hotel-offers-web:local
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:

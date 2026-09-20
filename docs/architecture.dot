@@ -1,0 +1,58 @@
+/*
+ * Source for docs/architecture.svg — Graphviz DOT, not Mermaid.
+ *
+ * Regenerate with Graphviz installed:
+ *   dot -Tsvg docs/architecture.dot -o docs/architecture.svg
+ *
+ * Or without installing anything, using the WASM build:
+ *   npm --prefix /tmp/gv i @hpcc-js/wasm-graphviz
+ *   node --input-type=module -e "import {Graphviz} from '/tmp/gv/node_modules/@hpcc-js/wasm-graphviz/dist/index.js';
+ *     import {readFile,writeFile} from 'node:fs/promises';
+ *     const g=await Graphviz.load();
+ *     await writeFile('docs/architecture.svg', g.layout(await readFile('docs/architecture.dot','utf8'),'svg','dot'));"
+ */
+digraph architecture {
+  bgcolor="#fbfbfd"
+  rankdir=TB
+  splines=spline
+  nodesep=0.45
+  ranksep=0.55
+  pad=0.35
+  fontname="Helvetica"
+
+  node [shape=box style="rounded,filled" penwidth=0 fontname="Helvetica"
+        fontsize=11 margin="0.26,0.16" height=0.46]
+  edge [fontname="Helvetica" fontsize=9 color="#9aa3b2" fontcolor="#68707e"
+        arrowsize=0.75 penwidth=1.2]
+
+  /* ---- nodes ---- */
+  browser  [label="browser"                       fillcolor="#e8eaf0" fontcolor="#3c4250"]
+  web      [label="web · Next.js\n:3000"          fillcolor="#dce9fd" fontcolor="#1b3f8f"]
+  api      [label="api · NestJS\n:3001"           fillcolor="#dce9fd" fontcolor="#1b3f8f"]
+  worker   [label="worker · NestJS\nactivities"   fillcolor="#dce9fd" fontcolor="#1b3f8f"]
+  temporal [label="Temporal\n:7233"               fillcolor="#e7e0fb" fontcolor="#4a2a97"]
+  postgres [label="Postgres\nTemporal's store\n+ supplier_a · supplier_b" fillcolor="#e7e0fb" fontcolor="#4a2a97"]
+  redis    [label="Redis\nZSET scored by price"   fillcolor="#fde0e0" fontcolor="#96282c"]
+  supplierA [label="supplier-a\n:4002 · db supplier_a"  fillcolor="#d9f2e3" fontcolor="#14653a"]
+  supplierB [label="supplier-b\n:4003 · db supplier_b"  fillcolor="#d9f2e3" fontcolor="#14653a"]
+
+  /* ---- flow ---- */
+  browser -> web       [label="  GET /?city=delhi"]
+  web     -> api       [label="  server-side fetch\l  no CORS, no public API URL\l"]
+  api     -> redis     [label="  cache hit\l  ZRANGEBYSCORE = the price filter\l"]
+  api     -> temporal  [label="  cache miss\l  execute workflow\l"]
+  temporal -> postgres [label="  event history\l  + workflow state\l"]
+  temporal -> worker   [label="  dispatch task"]
+  worker  -> supplierA [label="  Promise.allSettled  \l  GET :4002/hotels\l"]
+  worker  -> supplierB [label="  GET :4003/hotels  "]
+  worker  -> redis     [label="  write deduped list  " style=dashed]
+
+  /* ---- layout hints ----
+   * Redis sits beside the api; Postgres hangs off Temporal on the left so the
+   * right-hand lane stays clear for the worker's write back into Redis. The
+   * suppliers' own edges into Postgres are left undrawn — they would loop right
+   * around the graph, and the Postgres label already names their databases. */
+  { rank=same; api; redis }
+  { rank=same; postgres; worker }
+  { rank=same; supplierA; supplierB }
+}

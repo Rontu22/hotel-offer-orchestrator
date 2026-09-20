@@ -1,0 +1,20 @@
+{
+  "name": "hotel-suppliers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Two standalone mock supplier APIs, each with its own Postgres database.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "start:a": "SUPPLIER_ID=supplierA PORT=4002 DATABASE_URL=postgres://temporal:temporal@localhost:5432/supplier_a node main.js",
+    "start:b": "SUPPLIER_ID=supplierB PORT=4003 DATABASE_URL=postgres://temporal:temporal@localhost:5432/supplier_b node main.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

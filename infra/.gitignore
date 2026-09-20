@@ -1,0 +1,15 @@
+# Real environment files. Values here are live credentials and database
+# passwords, and .env is read by `docker compose` from this directory.
+.env
+.env.*
+
+# The samples are the documentation for what the above must contain.
+!.env.example
+!.env.aws.example
+
+# Terraform state records every resource, including generated secrets.
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
