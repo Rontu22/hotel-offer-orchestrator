@@ -225,7 +225,16 @@ could not be reached. The body stays the plain array the spec pins down.
 integers. Unknown query parameters are rejected with `400`. Cities are matched
 case-insensitively; `delhi`, `mumbai` and `bangalore` have data.
 
-The supplier services are separate, on their own ports:
+The two supplier paths the brief specifies are served by the API, which forwards
+each one to the standalone service that owns the data:
+
+| Method | Path                        | Notes                                       |
+| ------ | --------------------------- | ------------------------------------------- |
+| GET    | `/supplierA/hotels?city=`   | Forwards to Supplier A; 503 when it is down |
+| GET    | `/supplierB/hotels?city=`   | Forwards to Supplier B; 503 when it is down |
+
+Those services can also be reached directly, which is what the supplier folder of
+the Postman collection does:
 
 | Method | Path                        | Service                                   |
 | ------ | --------------------------- | ----------------------------------------- |

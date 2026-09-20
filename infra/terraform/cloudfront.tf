@@ -3,7 +3,7 @@ locals {
   api_origin = "ec2-api"
 
   # Everything the NestJS app serves. Anything else falls through to the S3 bundle.
-  api_paths = ["/api/*", "/health", "/health/*"]
+  api_paths = ["/api/*", "/health", "/health/*", "/supplierA/*", "/supplierB/*"]
 }
 
 resource "aws_cloudfront_origin_access_control" "site" {

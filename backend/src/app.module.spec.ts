@@ -150,4 +150,24 @@ describe('AppModule', () => {
     expect(body).toMatchObject({ status: 'unhealthy', redis: { status: 'down', error: 'connection refused' } });
     await ctx.app.close();
   });
+
+  /**
+   * The brief pins these two paths down. They forward to the standalone supplier
+   * services rather than serving a catalogue this process owns.
+   */
+  it('exposes the supplier paths the brief specifies', async () => {
+    for (const supplier of ['supplierA', 'supplierB']) {
+      const { body } = await ctx.http().get(`/${supplier}/hotels?city=delhi`).expect(200);
+      expect(Array.isArray(body)).toBe(true);
+    }
+    await ctx.app.close();
+  });
+
+  it('passes a switched-off supplier through as 503 on that path', async () => {
+    await ctx.http().put('/api/suppliers/supplierA/availability').send({ available: false }).expect(200);
+
+    await ctx.http().get('/supplierA/hotels?city=delhi').expect(503);
+    await ctx.http().get('/supplierB/hotels?city=delhi').expect(200);
+    await ctx.app.close();
+  });
 });
