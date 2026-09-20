@@ -24,7 +24,7 @@ describe('HotelsService', () => {
     );
   });
 
-  it('runs the workflow on a cache miss and serves the result from Redis', async () => {
+  it('runs the workflow and serves the result back through Redis', async () => {
     const result = await service.find({ city: 'delhi' });
 
     expect(execute).toHaveBeenCalledOnce();
