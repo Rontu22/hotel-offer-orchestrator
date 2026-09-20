@@ -22,7 +22,7 @@
 | | Link |
 | :-- | :-- |
 | **Web app** | **https://d25tqeh2vfoq4q.cloudfront.net** |
-| **Demo video** (2m49s, no sound) | **[▶ Watch](https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4)** |
+| **Demo video** (2m49s, no sound) | **[▶ Watch](https://github.com/user-attachments/assets/ce106a20-f430-40f3-a0e7-785d9ec9b2df)** |
 | **Temporal UI** (real workflow histories) | **http://ec2-3-108-208-55.ap-south-1.compute.amazonaws.com:8080** |
 | API — hotels in Delhi | https://d25tqeh2vfoq4q.cloudfront.net/api/hotels?city=delhi |
 | API — price filtered | https://d25tqeh2vfoq4q.cloudfront.net/api/hotels?city=delhi&minPrice=4000&maxPrice=6000 |
@@ -41,15 +41,11 @@ against the supplier you just switched off.
 
 ### Demo video
 
-<p align="center">
-  <a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">
-    <img src="docs/screenshots/01-web-app.png" alt="Demo video — 2 minutes 49 seconds, no sound" width="880">
-  </a>
-</p>
+https://github.com/user-attachments/assets/ce106a20-f430-40f3-a0e7-785d9ec9b2df
 
-<p align="center">
-  <b><a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">▶ Watch the demo</a></b> — 2m49s, no sound, 14 MB
-</p>
+2m49s, no sound. A full pass over the running stack: searching, the price filter,
+taking a supplier down and watching the result degrade, and the workflow runs it
+produces in Temporal.
 
 ### The app
 
