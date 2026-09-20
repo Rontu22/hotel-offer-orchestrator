@@ -22,6 +22,7 @@
 | | Link |
 | :-- | :-- |
 | **Web app** | **https://d25tqeh2vfoq4q.cloudfront.net** |
+| **Demo video** (2m49s, no sound) | **[▶ Watch](https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4)** |
 | **Temporal UI** (real workflow histories) | **http://ec2-3-108-208-55.ap-south-1.compute.amazonaws.com:8080** |
 | API — hotels in Delhi | https://d25tqeh2vfoq4q.cloudfront.net/api/hotels?city=delhi |
 | API — price filtered | https://d25tqeh2vfoq4q.cloudfront.net/api/hotels?city=delhi&minPrice=4000&maxPrice=6000 |
@@ -38,6 +39,21 @@ against the supplier you just switched off.
 
 ## Screenshots
 
+### Demo video
+
+<p align="center">
+  <a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">
+    <img src="docs/screenshots/01-web-app.png" alt="Play the demo video — 2 minutes 49 seconds, no sound" width="880">
+  </a>
+</p>
+
+<p align="center">
+  <b><a href="https://github.com/Rontu22/hotel-offer-orchestrator/raw/main/docs/demo/demo.mp4">▶ Watch the demo</a></b>
+  — 2m49s, no sound, 14 MB
+</p>
+
+### The app
+
 <p align="center">
   <img src="docs/screenshots/01-web-app.png" alt="Hotel offers for Mumbai, with a health panel showing Redis, Temporal and both suppliers up" width="880">
 </p>
@@ -46,6 +62,8 @@ The health panel reports every dependency with its own latency, and each supplie
 **Take down** button that switches it off for real. The result line reads
 *"orchestrated just now"* because every search runs the workflow — nothing is served
 from a cache.
+
+### Temporal
 
 <p align="center">
   <img src="docs/screenshots/02-temporal-workflows.png" alt="Temporal Web UI listing aggregateHotelOffers runs, one per search" width="880">

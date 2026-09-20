@@ -27,3 +27,8 @@ crash.log
 # keeping it untracked stops it reappearing in a diff.
 AGENTS.md
 brag-output/
+
+# Raw screen captures. Only the compressed docs/demo/demo.mp4 is committed; the
+# originals are hundreds of MB and would blow past GitHub's 100MB file limit.
+*.mov
+*.MOV
